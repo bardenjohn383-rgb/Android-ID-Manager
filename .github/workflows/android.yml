@@ -16,48 +16,94 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      # 1. 下载仓库源码
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # 2. 配置 JDK 17
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
+      # 3. 配置 Android SDK
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install Android 17 SDK
+      # 4. 安装 Android 37 SDK
+      - name: Install Android SDK 37
         run: |
-          sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
-          yes | sdkmanager --licenses
+          sdkmanager --sdk_root="$ANDROID_HOME" \
+            "platforms;android-37.0" \
+            "build-tools;36.0.0"
 
-      - name: Fix Android 37 SDK directory
+      # 5. 接受 SDK 许可证
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses || true
+
+      # 6. 修复 Android 37 SDK 目录兼容问题
+      - name: Fix Android 37 SDK Directory
         run: |
           cd "$ANDROID_HOME/platforms"
+
           if [ ! -e android-37 ] && [ -d android-37.0 ]; then
             ln -s android-37.0 android-37
           fi
+
           ls -la
 
+      # 7. 配置 Gradle 9.3.1
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.3.1'
 
+      # 8. 解压项目源码
       - name: Extract source project
         run: |
           unzip -q AndroidIDManager_Source.zip -d source
 
+          test -f source/AndroidIDManager/build.gradle.kts
+          test -f source/AndroidIDManager/app/build.gradle.kts
+
+      # 9. 更新 Android Gradle Plugin 和 Kotlin 插件
+      - name: Update Gradle Plugins
+        run: |
+          sed -i 's/version "9.0.0"/version "9.1.1"/' \
+            source/AndroidIDManager/build.gradle.kts
+
+          sed -i 's/version "2.2.20"/version "2.2.10"/' \
+            source/AndroidIDManager/build.gradle.kts
+
+          cat source/AndroidIDManager/build.gradle.kts
+
+      # 10. 编译 Debug APK
       - name: Build Debug APK
         run: |
-          gradle -p source/AndroidIDManager assembleDebug --no-daemon
+          gradle -p source/AndroidIDManager \
+            assembleDebug \
+            --no-daemon \
+            --stacktrace
 
-      - name: Upload APK
+      # 11. 检查 APK 是否生成
+      - name: Verify APK
+        run: |
+          APK="source/AndroidIDManager/app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "APK not found!"
+            exit 1
+          fi
+
+          ls -lh "$APK"
+
+      # 12. 上传 APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Android-ID-Manager-APK
-          path: source/AndroidIDManager/app/build/outputs/apk/debug/*.apk
+          path: source/AndroidIDManager/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
