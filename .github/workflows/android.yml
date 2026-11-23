@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      # 1. 下载仓库源码
+      # 1. 获取仓库源码
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -32,19 +32,19 @@ jobs:
         uses: android-actions/setup-android@v4
 
       # 4. 安装 Android 37 SDK
-      - name: Install Android SDK 37
+      - name: Install Android SDK
         run: |
-          sdkmanager --sdk_root="$ANDROID_HOME" \
+          sdkmanager --install \
             "platforms;android-37.0" \
             "build-tools;36.0.0"
 
       # 5. 接受 SDK 许可证
       - name: Accept Android SDK Licenses
         run: |
-          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses || true
+          yes | sdkmanager --licenses
 
-      # 6. 修复 Android 37 SDK 目录兼容问题
-      - name: Fix Android 37 SDK Directory
+      # 6. 兼容 SDK 目录名称
+      - name: Fix Android SDK Directory
         run: |
           cd "$ANDROID_HOME/platforms"
 
@@ -54,32 +54,39 @@ jobs:
 
           ls -la
 
-      # 7. 配置 Gradle 9.3.1
+      # 7. 配置 Gradle
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.3.1'
 
-      # 8. 解压项目源码
-      - name: Extract source project
+      # 8. 解压修复版源码
+      - name: Extract Source Project
         run: |
-          unzip -q AndroidIDManager_Source.zip -d source
+          unzip -q AndroidIDManager_Source_v2.zip -d source
 
           test -f source/AndroidIDManager/build.gradle.kts
           test -f source/AndroidIDManager/app/build.gradle.kts
 
-      # 9. 更新 Android Gradle Plugin 和 Kotlin 插件
-      - name: Update Gradle Plugins
+      # 9. 检查 Kotlin 插件配置
+      - name: Verify Kotlin Migration
         run: |
-          sed -i 's/version "9.0.0"/version "9.1.1"/' \
-            source/AndroidIDManager/build.gradle.kts
+          if grep -R "org.jetbrains.kotlin.android" \
+            source/AndroidIDManager/*.gradle.kts \
+            source/AndroidIDManager/app/*.gradle.kts; then
+            echo "Unexpected Kotlin Android plugin declaration!"
+            exit 1
+          fi
 
-          sed -i 's/version "2.2.20"/version "2.2.10"/' \
-            source/AndroidIDManager/build.gradle.kts
+          if grep -R "kotlinOptions" \
+            source/AndroidIDManager/app/*.gradle.kts; then
+            echo "Unexpected legacy kotlinOptions!"
+            exit 1
+          fi
 
-          cat source/AndroidIDManager/build.gradle.kts
+          echo "Kotlin migration check passed."
 
-      # 10. 编译 Debug APK
+      # 10. 编译 APK
       - name: Build Debug APK
         run: |
           gradle -p source/AndroidIDManager \
@@ -87,7 +94,7 @@ jobs:
             --no-daemon \
             --stacktrace
 
-      # 11. 检查 APK 是否生成
+      # 11. 验证 APK
       - name: Verify APK
         run: |
           APK="source/AndroidIDManager/app/build/outputs/apk/debug/app-debug.apk"
@@ -100,7 +107,7 @@ jobs:
           ls -lh "$APK"
 
       # 12. 上传 APK
-      - name: Upload APK Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Android-ID-Manager-APK
